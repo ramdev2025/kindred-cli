@@ -2,25 +2,62 @@
   "name": "@codecli/core",
   "version": "0.1.0",
   "description": "CodeCLI core services — config, skills, cache, templates, subagent, logging",
+  "license": "MIT",
+  "author": "Ramdev G. Calope (https://github.com/ramdev2025)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ramdev2025/codecli.git",
+    "directory": "packages/core"
+  },
+  "keywords": ["cli", "ai", "coding-assistant", "llm", "anthropic", "openai", "ollama"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./config": "./dist/config/index.js",
-    "./skills": "./dist/skills/index.js",
-    "./cache": "./dist/cache/index.js",
-    "./templates": "./dist/templates/index.js",
-    "./logging": "./dist/logging/index.js",
-    "./subagent": "./dist/subagent/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "import": "./dist/config/index.js"
+    },
+    "./skills": {
+      "types": "./dist/skills/index.d.ts",
+      "import": "./dist/skills/index.js"
+    },
+    "./cache": {
+      "types": "./dist/cache/index.d.ts",
+      "import": "./dist/cache/index.js"
+    },
+    "./templates": {
+      "types": "./dist/templates/index.d.ts",
+      "import": "./dist/templates/index.js"
+    },
+    "./logging": {
+      "types": "./dist/logging/index.d.ts",
+      "import": "./dist/logging/index.js"
+    },
+    "./subagent": {
+      "types": "./dist/subagent/index.d.ts",
+      "import": "./dist/subagent/index.js"
+    },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "import": "./dist/db.js"
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs');const p=require('path');function cp(s,d){fs.mkdirSync(d,{recursive:true});for(const e of fs.readdirSync(s,{withFileTypes:true})){if(['.venv','__pycache__','.pytest_cache','tests','.git'].includes(e.name))continue;const sp=p.join(s,e.name),dp=p.join(d,e.name);e.isDirectory()?cp(sp,dp):fs.copyFileSync(sp,dp)}}cp(p.resolve('..','thinking'),p.resolve('python'))\"",
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "files": [
-    "dist"
+    "dist",
+    "python"
   ],
   "dependencies": {
     "fuse.js": "^7.0.0",

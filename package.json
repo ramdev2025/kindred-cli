@@ -2,7 +2,13 @@
   "name": "codecli",
   "version": "0.1.0",
   "description": "A CLI coding assistant with multi-provider AI support, skill templates, and subagent spawning",
+  "license": "MIT",
+  "author": "Ramdev G. Calope (https://github.com/ramdev2025)",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ramdev2025/codecli.git"
+  },
   "workspaces": [
     "packages/core",
     "packages/cli"

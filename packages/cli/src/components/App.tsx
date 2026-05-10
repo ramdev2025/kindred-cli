@@ -4,6 +4,7 @@ import { InputBox } from "./InputBox.js";
 import { StatusBar } from "./StatusBar.js";
 import { PeacockBanner } from "./PeacockBanner.js";
 import { SetupWizard } from "./SetupWizard.js";
+import { BackgroundTask, type TaskStatus } from "./BackgroundTask.js";
 import { SlashCommandRouter } from "../commands/router.js";
 import {
   ConfigManager,
@@ -15,6 +16,7 @@ import {
   Subagent,
   createLogger,
   type AppConfig,
+  type TokenUsage,
 } from "@codecli/core";
 
 const log = createLogger("app");
@@ -28,8 +30,15 @@ export interface AppProps {
 }
 
 interface ChatMessage {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "task";
   content: string;
+  /** For task messages — current background task state */
+  taskState?: {
+    status: TaskStatus;
+    startTime: number;
+    usage?: TokenUsage;
+    errorMessage?: string;
+  };
 }
 
 interface Services {
@@ -40,6 +49,11 @@ interface Services {
   templateSelector: TemplateSelector;
   router: SlashCommandRouter;
   spawner: SubagentSpawner;
+}
+
+interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
 }
 
 /** Route --api-key to the correct config key based on provider */
@@ -68,11 +82,14 @@ function getApiKeyForProvider(cfg: Partial<AppConfig>): string | undefined {
 export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) {
   const { exit } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [streaming, setStreaming] = useState(false);
-  const [currentResponse, setCurrentResponse] = useState("");
   const [status, setStatus] = useState(`${provider} | ${thinkingLevel} | ${mode}`);
   const [services, setServices] = useState<Services | null>(null);
   const [ready, setReady] = useState(false);
+
+  // Background task state
+  const [thinking, setThinking] = useState(false);
+  const [lastUsage, setLastUsage] = useState<TokenUsage | null>(null);
+  const [sessionUsage, setSessionUsage] = useState<SessionUsage>({ inputTokens: 0, outputTokens: 0 });
 
   // Onboarding state
   const [showSetup, setShowSetup] = useState(false);
@@ -81,23 +98,19 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
 
   // Persistent subagent — reused across messages
   const agentRef = useRef<Subagent | null>(null);
-  // Track the config fingerprint the agent was spawned with
   const agentConfigRef = useRef<string>("");
+  // Track the index of the current task message so we can update it
+  const taskIndexRef = useRef<number>(-1);
 
   // Phase 1: Create ConfigManager and check if setup is needed
   useEffect(() => {
     (async () => {
       try {
         const mgr = await ConfigManager.create();
-
-        // Apply CLI --api-key to the correct provider key
         if (apiKey) {
           mgr.set(apiKeyConfigKey(provider), apiKey as never);
         }
-
         setConfigMgr(mgr);
-
-        // Show setup wizard if no API keys are configured and none was passed via CLI
         if (!apiKey && mgr.needsSetup()) {
           setShowSetup(true);
         }
@@ -127,7 +140,6 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
       });
       const spawner = new SubagentSpawner();
 
-      // Apply CLI overrides (only non-api-key ones; api key already applied in phase 1)
       if (model) configMgr.set("model", model);
       configMgr.set("provider", provider as AppConfig["provider"]);
       configMgr.set("thinkingLevel", thinkingLevel as AppConfig["thinkingLevel"]);
@@ -142,27 +154,19 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
     }
   }, [initDone, showSetup, configMgr]);
 
-  /** Called when the setup wizard completes */
   const handleSetupComplete = useCallback(() => {
     setShowSetup(false);
-    // Services will be initialized by the useEffect above reacting to showSetup change
   }, []);
 
-  /**
-   * Get or create a subagent. Reuses the existing one if config hasn't changed.
-   * Respawns if provider/model/apiKey changed via slash commands.
-   */
   const getOrCreateAgent = useCallback(
     (cfg: Partial<AppConfig>, spawner: SubagentSpawner): Subagent => {
       const currentApiKey = getApiKeyForProvider(cfg);
       const fingerprint = `${cfg.provider}|${cfg.model ?? ""}|${currentApiKey ?? ""}`;
 
-      // Reuse existing agent if alive and config matches
       if (agentRef.current?.alive && agentConfigRef.current === fingerprint) {
         return agentRef.current;
       }
 
-      // Shutdown old agent if it exists
       if (agentRef.current?.alive) {
         agentRef.current.shutdown();
       }
@@ -188,7 +192,7 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
       const trimmed = input.trim();
       if (!trimmed) return;
 
-      // Handle slash commands
+      // Handle slash commands (always immediate, even while thinking)
       if (trimmed.startsWith("/")) {
         const result = services.router.handle(trimmed);
         setMessages((prev) => [
@@ -201,19 +205,32 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
         return;
       }
 
-      // Add user message
-      setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
-      setStreaming(true);
-      setCurrentResponse("");
+      // Add user message + task placeholder
+      const startTime = Date.now();
+      setMessages((prev) => {
+        const newMessages = [
+          ...prev,
+          { role: "user" as const, content: trimmed },
+          {
+            role: "task" as const,
+            content: "",
+            taskState: { status: "thinking" as TaskStatus, startTime },
+          },
+        ];
+        taskIndexRef.current = newMessages.length - 1;
+        return newMessages;
+      });
+      setThinking(true);
+      setLastUsage(null);
 
       try {
         const history = messages
-          .filter((m) => m.role !== "system")
+          .filter((m) => m.role === "user" || m.role === "assistant")
           .map((m) => ({ role: m.role, content: m.content }));
 
         const cfg = services.configMgr.getAll();
 
-        // Wire TemplateSelector — prepend skill templates to the query if applicable
+        // Skill enrichment
         const selectedSkills = services.templateSelector.select({
           mode: (cfg.mode as "plan" | "default" | "auto") || "default",
           thinkingLevel: (cfg.thinkingLevel as "low" | "medium" | "high" | "extra-high") || "medium",
@@ -228,7 +245,7 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
           enrichedMessage = `${skillContext}\n\n---\n\n${trimmed}`;
         }
 
-        // Prepend enabled MCP server context so the AI knows available tools
+        // MCP enrichment
         const enabledMcp = services.mcpRegistry.listEnabled();
         if (enabledMcp.length > 0) {
           const mcpContext = enabledMcp
@@ -237,37 +254,68 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
           enrichedMessage = `${mcpContext}\n\n---\n\n${enrichedMessage}`;
         }
 
-        // Get or reuse subagent
         const agent = getOrCreateAgent(cfg, services.spawner);
 
-        // Update thinking level on the existing agent if it changed
         if (cfg.thinkingLevel) {
           await agent.setThinkingLevel(cfg.thinkingLevel);
         }
 
         let fullText = "";
-        await agent.stream(enrichedMessage, history, (text, done) => {
+        let finalUsage: TokenUsage | undefined;
+
+        await agent.stream(enrichedMessage, history, (text, done, usage) => {
           fullText += text;
-          setCurrentResponse(fullText);
-          if (done) {
-            setStreaming(false);
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: fullText },
-            ]);
-            setCurrentResponse("");
+          if (done && usage) {
+            finalUsage = usage;
           }
         });
+
+        // Replace task placeholder with response + done indicator
+        const idx = taskIndexRef.current;
+        setMessages((prev) => {
+          const updated = [...prev];
+          // Update the task indicator to "done"
+          if (idx >= 0 && idx < updated.length && updated[idx].role === "task") {
+            updated[idx] = {
+              role: "task",
+              content: "",
+              taskState: { status: "done", startTime, usage: finalUsage },
+            };
+          }
+          // Add the actual AI response after it
+          updated.splice(idx + 1, 0, { role: "assistant", content: fullText });
+          return updated;
+        });
+
+        setThinking(false);
+        if (finalUsage) {
+          setLastUsage(finalUsage);
+          setSessionUsage((prev) => ({
+            inputTokens: prev.inputTokens + finalUsage!.input_tokens,
+            outputTokens: prev.outputTokens + finalUsage!.output_tokens,
+          }));
+        }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         log.error(`Completion error: ${errMsg}`);
-        setStreaming(false);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `Error: ${errMsg}` },
-        ]);
-        setCurrentResponse("");
-        // If the agent died, clear the ref so it respawns next time
+
+        // Update task placeholder to error state
+        const idx = taskIndexRef.current;
+        setMessages((prev) => {
+          const updated = [...prev];
+          if (idx >= 0 && idx < updated.length && updated[idx].role === "task") {
+            updated[idx] = {
+              role: "task",
+              content: "",
+              taskState: { status: "error", startTime, errorMessage: errMsg },
+            };
+          }
+          return updated;
+        });
+
+        setThinking(false);
+
+        // Clear dead agent so it respawns next time
         if (agentRef.current && !agentRef.current.alive) {
           agentRef.current = null;
           agentConfigRef.current = "";
@@ -303,28 +351,31 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
 
       {/* Chat history */}
       <Box flexDirection="column" paddingX={1} flexGrow={1}>
-        {messages.map((msg, i) => (
-          <Box key={i} marginBottom={1}>
-            <Text bold color={msg.role === "user" ? "green" : msg.role === "system" ? "red" : "blue"}>
-              {msg.role === "user" ? "You" : msg.role === "system" ? "System" : "AI"}:{" "}
-            </Text>
-            <Text wrap="wrap">{msg.content}</Text>
-          </Box>
-        ))}
-
-        {streaming && currentResponse && (
-          <Box marginBottom={1}>
-            <Text bold color="blue">
-              AI:{" "}
-            </Text>
-            <Text wrap="wrap">{currentResponse}</Text>
-            <Text color="yellow">▊</Text>
-          </Box>
-        )}
+        {messages.map((msg, i) => {
+          if (msg.role === "task" && msg.taskState) {
+            return (
+              <BackgroundTask
+                key={i}
+                status={msg.taskState.status}
+                startTime={msg.taskState.startTime}
+                usage={msg.taskState.usage}
+                errorMessage={msg.taskState.errorMessage}
+              />
+            );
+          }
+          return (
+            <Box key={i} marginBottom={1}>
+              <Text bold color={msg.role === "user" ? "green" : msg.role === "system" ? "red" : "blue"}>
+                {msg.role === "user" ? "You" : msg.role === "system" ? "System" : "AI"}:{" "}
+              </Text>
+              <Text wrap="wrap">{msg.content}</Text>
+            </Box>
+          );
+        })}
       </Box>
 
-      <InputBox onSubmit={handleSubmit} isDisabled={streaming || !ready} />
-      <StatusBar status={status} streaming={streaming} />
+      <InputBox onSubmit={handleSubmit} isDisabled={!ready} />
+      <StatusBar status={status} thinking={thinking} lastUsage={lastUsage} sessionUsage={sessionUsage} />
     </Box>
   );
 }

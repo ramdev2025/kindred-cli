@@ -238,6 +238,11 @@ export class SubagentSpawner extends EventEmitter {
   }
 }
 
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+}
+
 export class Subagent {
   private child: ChildProcess;
   private config: SubagentConfig;
@@ -344,15 +349,18 @@ export class Subagent {
   async stream(
     message: string,
     history?: Array<{ role: string; content: string }>,
-    onChunk?: (text: string, done: boolean) => void
+    onChunk?: (text: string, done: boolean, usage?: TokenUsage) => void
   ): Promise<string> {
     if (!this.initialized) await this.initialize();
 
-    let chunkHandler: ((chunk: { text: string; done: boolean }) => void) | null = null;
+    let chunkHandler: ((chunk: { text: string; done: boolean; usage?: TokenUsage }) => void) | null = null;
 
     if (onChunk) {
-      chunkHandler = (chunk: { text: string; done: boolean }) => {
-        onChunk(chunk.text, chunk.done);
+      chunkHandler = (chunk: { text: string; done: boolean; usage?: TokenUsage }) => {
+        onChunk(chunk.text, chunk.done, chunk.usage ?? undefined);
+        if (chunk.done && chunk.usage) {
+          this.events.emit("usage", chunk.usage);
+        }
       };
       this.events.on("chunk", chunkHandler);
     }

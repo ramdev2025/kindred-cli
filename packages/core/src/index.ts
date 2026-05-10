@@ -10,4 +10,4 @@ export {
 } from "./templates/index.js";
 export { createLogger, logger, type LogLevel } from "./logging/index.js";
 export { initDb, openDb, saveDb, queryAll, queryOne, execute, type Database } from "./db.js";
-export { SubagentSpawner, Subagent, type SubagentConfig, type SubagentMessage } from "./subagent/index.js";
+export { SubagentSpawner, Subagent, type SubagentConfig, type SubagentMessage, type TokenUsage } from "./subagent/index.js";

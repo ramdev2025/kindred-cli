@@ -1,0 +1,19 @@
+{
+  "name": "codecli",
+  "version": "0.1.0",
+  "description": "A CLI coding assistant with multi-provider AI support, skill templates, and subagent spawning",
+  "private": true,
+  "workspaces": [
+    "packages/core",
+    "packages/cli"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/cli",
+    "dev": "npm run dev --workspace=packages/cli",
+    "start": "npm run start --workspace=packages/cli",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

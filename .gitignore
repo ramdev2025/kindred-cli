@@ -1,0 +1,30 @@
+node_modules/
+dist/
+*.js.map
+*.d.ts.map
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Plans (auto-generated)
+plans/

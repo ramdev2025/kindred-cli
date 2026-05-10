@@ -1,0 +1,35 @@
+{
+  "name": "@codecli/core",
+  "version": "0.1.0",
+  "description": "CodeCLI core services — config, skills, cache, templates, subagent, logging",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./config": "./dist/config/index.js",
+    "./skills": "./dist/skills/index.js",
+    "./cache": "./dist/cache/index.js",
+    "./templates": "./dist/templates/index.js",
+    "./logging": "./dist/logging/index.js",
+    "./subagent": "./dist/subagent/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "fuse.js": "^7.0.0",
+    "sql.js": "^1.11.0",
+    "winston": "^3.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

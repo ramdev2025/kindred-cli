@@ -2,10 +2,13 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { InputBox } from "./InputBox.js";
 import { StatusBar } from "./StatusBar.js";
+import { PeacockBanner } from "./PeacockBanner.js";
+import { SetupWizard } from "./SetupWizard.js";
 import { SlashCommandRouter } from "../commands/router.js";
 import {
   ConfigManager,
   SkillRegistry,
+  McpRegistry,
   TemplateSelector,
   Cache,
   SubagentSpawner,
@@ -33,9 +36,21 @@ interface Services {
   configMgr: ConfigManager;
   cache: Cache;
   skillRegistry: SkillRegistry;
+  mcpRegistry: McpRegistry;
   templateSelector: TemplateSelector;
   router: SlashCommandRouter;
   spawner: SubagentSpawner;
+}
+
+/** Route --api-key to the correct config key based on provider */
+function apiKeyConfigKey(provider: string): keyof AppConfig {
+  switch (provider) {
+    case "openai":
+      return "openaiApiKey";
+    case "anthropic":
+    default:
+      return "anthropicApiKey";
+  }
 }
 
 /** Build the API key for the current provider from config */
@@ -59,44 +74,78 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
   const [services, setServices] = useState<Services | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Onboarding state
+  const [showSetup, setShowSetup] = useState(false);
+  const [configMgr, setConfigMgr] = useState<ConfigManager | null>(null);
+  const [initDone, setInitDone] = useState(false);
+
   // Persistent subagent — reused across messages
   const agentRef = useRef<Subagent | null>(null);
   // Track the config fingerprint the agent was spawned with
   const agentConfigRef = useRef<string>("");
 
-  // Async initialization
+  // Phase 1: Create ConfigManager and check if setup is needed
   useEffect(() => {
     (async () => {
       try {
-        const configMgr = await ConfigManager.create();
-        const db = configMgr.getDatabase();
-        const dbPath = configMgr.getDbPath();
-        const cache = new Cache(db, dbPath);
-        const skillRegistry = new SkillRegistry(db, dbPath, cache);
-        const templateSelector = new TemplateSelector(skillRegistry);
-        const router = new SlashCommandRouter(configMgr, skillRegistry);
-        const spawner = new SubagentSpawner();
+        const mgr = await ConfigManager.create();
 
-        // Apply CLI overrides
-        if (apiKey) configMgr.set("anthropicApiKey", apiKey);
-        if (model) configMgr.set("model", model);
-        configMgr.set("provider", provider as AppConfig["provider"]);
-        configMgr.set("thinkingLevel", thinkingLevel as AppConfig["thinkingLevel"]);
-        configMgr.set("mode", mode as AppConfig["mode"]);
+        // Apply CLI --api-key to the correct provider key
+        if (apiKey) {
+          mgr.set(apiKeyConfigKey(provider), apiKey as never);
+        }
 
-        setServices({ configMgr, cache, skillRegistry, templateSelector, router, spawner });
-        setReady(true);
-        log.info("App initialized successfully");
+        setConfigMgr(mgr);
+
+        // Show setup wizard if no API keys are configured and none was passed via CLI
+        if (!apiKey && mgr.needsSetup()) {
+          setShowSetup(true);
+        }
+        setInitDone(true);
       } catch (err) {
         log.error(`Init failed: ${err}`);
         setMessages([{ role: "system", content: `Initialization error: ${err}` }]);
+        setInitDone(true);
       }
     })();
+  }, []);
 
-    // Cleanup subagent on unmount
-    return () => {
-      agentRef.current?.shutdown();
-    };
+  // Phase 2: Initialize services (after setup is done)
+  useEffect(() => {
+    if (!initDone || !configMgr || showSetup) return;
+
+    try {
+      const db = configMgr.getDatabase();
+      const dbPath = configMgr.getDbPath();
+      const cache = new Cache(db, dbPath);
+      const skillRegistry = new SkillRegistry(db, dbPath, cache);
+      const mcpRegistry = new McpRegistry(db, dbPath);
+      const templateSelector = new TemplateSelector(skillRegistry);
+      const router = new SlashCommandRouter(configMgr, skillRegistry, mcpRegistry, () => {
+        setShowSetup(true);
+        setReady(false);
+      });
+      const spawner = new SubagentSpawner();
+
+      // Apply CLI overrides (only non-api-key ones; api key already applied in phase 1)
+      if (model) configMgr.set("model", model);
+      configMgr.set("provider", provider as AppConfig["provider"]);
+      configMgr.set("thinkingLevel", thinkingLevel as AppConfig["thinkingLevel"]);
+      configMgr.set("mode", mode as AppConfig["mode"]);
+
+      setServices({ configMgr, cache, skillRegistry, mcpRegistry, templateSelector, router, spawner });
+      setReady(true);
+      log.info("App initialized successfully");
+    } catch (err) {
+      log.error(`Service init failed: ${err}`);
+      setMessages([{ role: "system", content: `Initialization error: ${err}` }]);
+    }
+  }, [initDone, showSetup, configMgr]);
+
+  /** Called when the setup wizard completes */
+  const handleSetupComplete = useCallback(() => {
+    setShowSetup(false);
+    // Services will be initialized by the useEffect above reacting to showSetup change
   }, []);
 
   /**
@@ -179,6 +228,15 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
           enrichedMessage = `${skillContext}\n\n---\n\n${trimmed}`;
         }
 
+        // Prepend enabled MCP server context so the AI knows available tools
+        const enabledMcp = services.mcpRegistry.listEnabled();
+        if (enabledMcp.length > 0) {
+          const mcpContext = enabledMcp
+            .map((s) => `[MCP Server: ${s.name}]\nCommand: ${s.command}${s.args.length > 0 ? " " + s.args.join(" ") : ""}`)
+            .join("\n\n");
+          enrichedMessage = `${mcpContext}\n\n---\n\n${enrichedMessage}`;
+        }
+
         // Get or reuse subagent
         const agent = getOrCreateAgent(cfg, services.spawner);
 
@@ -222,19 +280,20 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
       agentRef.current?.shutdown();
-      services?.configMgr.close();
+      configMgr?.close();
       exit();
     }
   });
 
+  // --- Render: Setup wizard ---
+  if (showSetup && configMgr) {
+    return <SetupWizard configMgr={configMgr} onComplete={handleSetupComplete} />;
+  }
+
+  // --- Render: Main app ---
   return (
     <Box flexDirection="column" width="100%">
-      <Box borderStyle="single" borderColor="cyan" paddingX={1}>
-        <Text bold color="cyan">
-          CodeCLI
-        </Text>
-        <Text> — AI-Powered Coding Assistant</Text>
-      </Box>
+      <PeacockBanner />
 
       {!ready && (
         <Box paddingX={1}>

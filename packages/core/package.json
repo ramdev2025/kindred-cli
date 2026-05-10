@@ -1,6 +1,6 @@
 {
   "name": "@codecli/core",
-  "version": "0.1.0",
+  "version": "1.2.9",
   "description": "CodeCLI core services — config, skills, cache, templates, subagent, logging",
   "license": "MIT",
   "author": "Ramdev G. Calope (https://github.com/ramdev2025)",

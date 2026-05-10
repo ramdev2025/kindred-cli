@@ -1,6 +1,6 @@
 {
   "name": "@kindred-cli/cli",
-  "version": "0.1.0",
+  "version": "1.2.9",
   "description": "kindred-cli — AI-powered coding assistant with multi-provider support",
   "license": "MIT",
   "author": "Ramdev G. Calope (https://github.com/ramdev2025)",
@@ -28,7 +28,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@kindred-cli/core": "0.1.0",
+    "@kindred-cli/core": "1.2.9",
     "commander": "^12.1.0",
     "ink": "^5.1.0",
     "ink-spinner": "^5.0.0",

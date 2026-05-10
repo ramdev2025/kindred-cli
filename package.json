@@ -1,6 +1,6 @@
 {
   "name": "kindred-cli",
-  "version": "0.1.0",
+  "version": "1.2.9",
   "description": "A CLI coding assistant with multi-provider AI support, skill templates, and subagent spawning",
   "license": "MIT",
   "author": "Ramdev G. Calope (https://github.com/ramdev2025)",

@@ -1,4 +1,8 @@
-# CodeCLI
+<p align="center">
+  <img src="kindred-cli.png" alt="kindred-cli" width="600">
+</p>
+
+# kindred-cli
 
 A terminal-based AI coding assistant with multi-provider support, skill templates, and subagent spawning.
 
@@ -14,37 +18,37 @@ A terminal-based AI coding assistant with multi-provider support, skill template
 ## Install
 
 ```bash
-npx @codecli/cli
+npx @kindred-cli/cli
 ```
 
 Or install globally:
 
 ```bash
-npm install -g @codecli/cli
+npm install -g @kindred-cli/cli
 ```
 
 ### Requirements
 
 - Node.js >= 18.0.0
-- Python >= 3.10 (auto-installed into `~/.codecli/` on first run)
+- Python >= 3.10 (auto-installed into `~/.kindred-cli/` on first run)
 
 ## Usage
 
 ```bash
 # Start with defaults (Anthropic, medium thinking)
-codecli --api-key sk-ant-...
+kindred-cli --api-key sk-ant-...
 
 # Use OpenAI
-codecli --provider openai --api-key sk-...
+kindred-cli --provider openai --api-key sk-...
 
 # Use local Ollama
-codecli --provider ollama
+kindred-cli --provider ollama
 
 # Set thinking level
-codecli --thinking high
+kindred-cli --thinking high
 
 # Set mode
-codecli --mode plan
+kindred-cli --mode plan
 ```
 
 ### Slash Commands

@@ -121,6 +121,15 @@ export class ConfigManager {
     this.db.close();
   }
 
+  /**
+   * Returns true if no API key or host is configured for any provider.
+   * Used to detect first-run and trigger the setup wizard.
+   */
+  needsSetup(): boolean {
+    const cfg = this.getAll();
+    return !cfg.anthropicApiKey && !cfg.openaiApiKey && !cfg.ollamaHost;
+  }
+
   private save(): void {
     saveDb(this.db, this.dbPath);
   }

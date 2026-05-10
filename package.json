@@ -1,5 +1,5 @@
 {
-  "name": "codecli",
+  "name": "kindred-cli",
   "version": "0.1.0",
   "description": "A CLI coding assistant with multi-provider AI support, skill templates, and subagent spawning",
   "license": "MIT",
@@ -7,7 +7,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/ramdev2025/codecli.git"
+    "url": "https://github.com/ramdev2025/kindred-cli.git"
   },
   "workspaces": [
     "packages/core",

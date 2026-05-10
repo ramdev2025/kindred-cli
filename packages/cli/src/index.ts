@@ -5,8 +5,8 @@ import { render } from "ink";
 import { App } from "./components/App.js";
 
 const program = new Command()
-  .name("codecli")
-  .description("CodeCLI — AI-powered coding assistant")
+  .name("kindred-cli")
+  .description("kindred-cli — AI-powered coding assistant")
   .version("0.1.0")
   .option("-p, --provider <name>", "AI provider (anthropic, openai, ollama)", "anthropic")
   .option("-t, --thinking <level>", "Thinking level (low, medium, high, extra-high)", "medium")

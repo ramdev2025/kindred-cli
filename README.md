@@ -4,6 +4,11 @@
 
 # kindred-cli
 
+[![npm version](https://img.shields.io/npm/v/@ramdevcalope/kindred-cli.svg)](https://www.npmjs.com/package/@ramdevcalope/kindred-cli)
+[![npm downloads](https://img.shields.io/npm/dm/@ramdevcalope/kindred-cli.svg)](https://www.npmjs.com/package/@ramdevcalope/kindred-cli)
+[![GitHub](https://img.shields.io/badge/GitHub-repo-blue.svg)](https://github.com/ramdev2025/kindred-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A terminal-based AI coding assistant with multi-provider support, skill templates, and subagent spawning.
 
 ## Features
@@ -18,13 +23,13 @@ A terminal-based AI coding assistant with multi-provider support, skill template
 ## Install
 
 ```bash
-npx @kindred-cli/cli
+npx @ramdevcalope/kindred-cli
 ```
 
 Or install globally:
 
 ```bash
-npm install -g @kindred-cli/cli
+npm install -g @ramdevcalope/kindred-cli
 ```
 
 ### Requirements

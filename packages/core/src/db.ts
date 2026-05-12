@@ -1,83 +1,59 @@
 /**
- * Thin wrapper around sql.js providing a synchronous-looking API.
- * sql.js loads WASM and must be initialized async once, but
- * after that, queries are synchronous (it's an in-memory DB
- * that we manually persist to disk).
+ * Thin wrapper around node:sqlite (built-in since Node 22).
+ * Uses DatabaseSync for a fully synchronous API — no WASM init needed.
  */
 
-import initSqlJs from "sql.js";
-import type { Database as SqlJsDatabase, SqlJsStatic } from "sql.js";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
-export type Database = SqlJsDatabase;
-
-let SQL: SqlJsStatic | null = null;
+export type Database = DatabaseSync;
 
 /**
- * Initialize the sql.js WASM module (call once at startup).
+ * Initialize the database module (no-op for node:sqlite, kept for API compat).
  */
 export async function initDb(): Promise<void> {
-  if (!SQL) {
-    SQL = await initSqlJs();
-  }
+  // node:sqlite requires no async init — this is a no-op
 }
 
 /**
  * Open or create a SQLite database file.
- * Must call initDb() before this.
  */
-export function openDb(filePath: string): SqlJsDatabase {
-  if (!SQL) throw new Error("Call initDb() before openDb()");
-
+export function openDb(filePath: string): DatabaseSync {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  if (fs.existsSync(filePath)) {
-    const buffer = fs.readFileSync(filePath);
-    return new SQL.Database(buffer);
-  }
-
-  return new SQL.Database();
+  return new DatabaseSync(filePath);
 }
 
 /**
- * Persist database to disk.
+ * Persist database to disk (no-op for node:sqlite — it writes directly).
  */
-export function saveDb(db: SqlJsDatabase, filePath: string): void {
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(filePath, buffer);
+export function saveDb(_db: DatabaseSync, _filePath: string): void {
+  // node:sqlite writes directly to the file — no manual persist needed
 }
 
 /**
  * Helper: run a query that returns rows as plain objects.
  */
 export function queryAll<T = Record<string, unknown>>(
-  db: SqlJsDatabase,
+  db: DatabaseSync,
   sql: string,
-  params?: unknown[]
+  params?: SQLInputValue[]
 ): T[] {
   const stmt = db.prepare(sql);
-  if (params) stmt.bind(params);
-
-  const results: T[] = [];
-  while (stmt.step()) {
-    results.push(stmt.getAsObject() as T);
-  }
-  stmt.free();
-  return results;
+  return stmt.all(...(params ?? [])) as T[];
 }
 
 /**
  * Helper: run a query that returns the first row.
  */
 export function queryOne<T = Record<string, unknown>>(
-  db: SqlJsDatabase,
+  db: DatabaseSync,
   sql: string,
-  params?: unknown[]
+  params?: SQLInputValue[]
 ): T | null {
   const rows = queryAll<T>(db, sql, params);
   return rows[0] ?? null;
@@ -87,10 +63,11 @@ export function queryOne<T = Record<string, unknown>>(
  * Helper: execute a statement (INSERT, UPDATE, DELETE) and return changes count.
  */
 export function execute(
-  db: SqlJsDatabase,
+  db: DatabaseSync,
   sql: string,
-  params?: unknown[]
+  params?: SQLInputValue[]
 ): number {
-  db.run(sql, params);
-  return db.getRowsModified();
+  const stmt = db.prepare(sql);
+  const result = stmt.run(...(params ?? []));
+  return Number(result.changes);
 }

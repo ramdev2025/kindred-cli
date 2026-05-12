@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="kindred-cli.png" alt="kindred-cli" width="600">
+  <img src="https://raw.githubusercontent.com/ramdev2025/kindred-cli/main/kindred-cli.png" alt="kindred-cli" width="600">
 </p>
 
 # kindred-cli
@@ -34,7 +34,7 @@ npm install -g @ramdevcalope/kindred-cli
 
 ### Requirements
 
-- Node.js >= 18.0.0
+- Node.js >= 22.0.0
 - Python >= 3.10 (auto-installed into `~/.kindred-cli/` on first run)
 
 ## Usage

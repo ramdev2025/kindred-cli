@@ -2,6 +2,7 @@ import { type Database, queryAll, queryOne, execute, saveDb } from "../db.js";
 import Fuse from "fuse.js";
 import { Cache } from "../cache/index.js";
 import { createLogger } from "../logging/index.js";
+import { DEFAULT_SKILLS } from "./defaults.js";
 
 const log = createLogger("skills");
 
@@ -57,7 +58,7 @@ export class SkillRegistry {
   }
 
   private migrate(): void {
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS skills (
         id           TEXT PRIMARY KEY,
         name         TEXT NOT NULL,
@@ -192,6 +193,25 @@ export class SkillRegistry {
       [key]
     );
     return row ? rowToSkill(row) : null;
+  }
+
+  /**
+   * Seed default skills if they don't already exist.
+   * Idempotent — safe to call on every startup.
+   * Returns the number of skills created.
+   */
+  seedDefaults(): number {
+    let created = 0;
+    for (const skill of DEFAULT_SKILLS) {
+      if (!this.get(skill.id)) {
+        this.create(skill);
+        created++;
+      }
+    }
+    if (created > 0) {
+      log.info(`Seeded ${created} default skill(s)`);
+    }
+    return created;
   }
 
   private save(): void {

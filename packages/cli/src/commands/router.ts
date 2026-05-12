@@ -1,21 +1,29 @@
-import { ConfigManager, SkillRegistry, McpRegistry, type AppConfig } from "@codecli/core";
+import { ConfigManager, SkillRegistry, McpRegistry, SkillBuilder, SubagentSpawner, type AppConfig } from "@codecli/core";
 import { createLogger } from "@codecli/core";
 
 const log = createLogger("commands");
 
-type CommandHandler = (args: string) => string;
+type CommandHandler = (args: string) => string | Promise<string>;
 
 export class SlashCommandRouter {
   private commands: Map<string, CommandHandler> = new Map();
   private configMgr: ConfigManager;
   private skillRegistry: SkillRegistry;
   private mcpRegistry: McpRegistry;
+  private spawner: SubagentSpawner;
   private onTriggerSetup?: () => void;
 
-  constructor(configMgr: ConfigManager, skillRegistry: SkillRegistry, mcpRegistry: McpRegistry, onTriggerSetup?: () => void) {
+  constructor(
+    configMgr: ConfigManager,
+    skillRegistry: SkillRegistry,
+    mcpRegistry: McpRegistry,
+    spawner: SubagentSpawner,
+    onTriggerSetup?: () => void
+  ) {
     this.configMgr = configMgr;
     this.skillRegistry = skillRegistry;
     this.mcpRegistry = mcpRegistry;
+    this.spawner = spawner;
     this.onTriggerSetup = onTriggerSetup;
     this.registerDefaults();
   }
@@ -82,7 +90,7 @@ export class SlashCommandRouter {
       return `Mode set to: ${mode}`;
     });
 
-    this.commands.set("/skill", (args) => {
+    this.commands.set("/skill", async (args) => {
       const parts = args.trim().split(/\s+/);
       const subcommand = parts[0] || "list";
 
@@ -243,8 +251,42 @@ export class SlashCommandRouter {
             return `Invalid JSON: ${err}`;
           }
         }
+        case "generate": {
+          const prompt = args.trim().slice("generate".length).trim();
+          if (!prompt) return "Usage: /skill generate <description of the skill you want>";
+          const cfg = this.configMgr.getAll();
+          const apiKey = cfg.provider === "openai" ? cfg.openaiApiKey : cfg.anthropicApiKey;
+          const builder = new SkillBuilder(this.spawner, {
+            provider: cfg.provider || "anthropic",
+            thinkingLevel: cfg.thinkingLevel || "medium",
+            apiKey,
+            model: cfg.model,
+          });
+          try {
+            const generated = await builder.generate(prompt);
+            if (this.skillRegistry.get(generated.id)) {
+              return `Skill "${generated.id}" already exists. Generated skill:\n${JSON.stringify(generated, null, 2)}\n\nUse /skill import with a different id to save it.`;
+            }
+            const skill = this.skillRegistry.create({
+              id: generated.id,
+              name: generated.name,
+              description: generated.description,
+              template: generated.template,
+              tags: generated.tags,
+            });
+            return `Skill generated and saved: ${skill.id} — ${skill.name} (v${skill.version})\nTags: ${skill.tags.join(", ")}\n\nTemplate:\n${skill.template}`;
+          } catch (err) {
+            return `Error generating skill: ${err instanceof Error ? err.message : err}`;
+          }
+        }
+        case "reset": {
+          const count = this.skillRegistry.seedDefaults();
+          return count > 0
+            ? `Restored ${count} default skill(s). Use /skill list to see them.`
+            : "All default skills already exist. Nothing to restore.";
+        }
         default:
-          return `Unknown subcommand: ${subcommand}. Options: list, search, get, create, update, delete, export, import`;
+          return `Unknown subcommand: ${subcommand}. Options: list, search, get, create, update, delete, export, import, generate, reset`;
       }
     });
 
@@ -374,8 +416,14 @@ export class SlashCommandRouter {
           if (!result) return `Failed to update MCP server: ${id}`;
           return `MCP server updated: ${result.id} — ${result.name} (${result.command})`;
         }
+        case "reset": {
+          const count = this.mcpRegistry.seedDefaults();
+          return count > 0
+            ? `Restored ${count} default MCP server(s). Use /mcp list to see them.`
+            : "All default MCP servers already exist. Nothing to restore.";
+        }
         default:
-          return `Unknown subcommand: ${subcommand}. Options: list, add, remove, get, enable, disable, env, update`;
+          return `Unknown subcommand: ${subcommand}. Options: list, add, remove, get, enable, disable, env, update, reset`;
       }
     });
 
@@ -392,7 +440,7 @@ export class SlashCommandRouter {
     });
   }
 
-  handle(input: string): string {
+  handle(input: string): string | Promise<string> {
     const firstSpace = input.indexOf(" ");
     const command = firstSpace === -1 ? input : input.slice(0, firstSpace);
     const args = firstSpace === -1 ? "" : input.slice(firstSpace + 1);
@@ -425,6 +473,8 @@ export class SlashCommandRouter {
       "    delete <id>          — Delete a skill",
       "    export <id>          — Export skill as JSON",
       "    import <json>        — Import a skill from JSON",
+      "    generate <prompt>    — AI-generate a skill from a description",
+      "    reset                — Restore default skills (engineer, devops, security)",
       "  /mcp                   — Manage MCP servers:",
       "    list                 — List all servers (● enabled, ○ disabled)",
       "    add <id> <name> <cmd> [args]",
@@ -437,6 +487,7 @@ export class SlashCommandRouter {
       "    env <id> --remove KEY— Remove an env var",
       "    update <id> <field> <value>",
       "                         — Update a field (name, command, args)",
+      "    reset                — Restore default MCP servers (playwright, duckduckgo, firecrawl)",
       "  /setup                 — Re-run the setup wizard (provider & API key)",
       "  /help                  — Show this help text",
       "  /exit                  — Exit kindred-cli",

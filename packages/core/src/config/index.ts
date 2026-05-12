@@ -49,7 +49,7 @@ export class ConfigManager {
   }
 
   private migrate(): void {
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS config (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL

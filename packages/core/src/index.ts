@@ -1,7 +1,10 @@
 export { ConfigManager, type AppConfig } from "./config/index.js";
 export { Cache } from "./cache/index.js";
 export { SkillRegistry, type SkillDefinition } from "./skills/index.js";
+export { DEFAULT_SKILLS, type DefaultSkill } from "./skills/defaults.js";
+export { SkillBuilder, detectSkillIntent, type GeneratedSkill } from "./skills/builder.js";
 export { McpRegistry, type McpServerConfig } from "./mcp/index.js";
+export { DEFAULT_MCP_SERVERS, type DefaultMcpServer } from "./mcp/defaults.js";
 export {
   TemplateSelector,
   type Mode,

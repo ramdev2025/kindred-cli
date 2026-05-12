@@ -1,5 +1,6 @@
 import { type Database, queryAll, queryOne, execute, saveDb } from "../db.js";
 import { createLogger } from "../logging/index.js";
+import { DEFAULT_MCP_SERVERS } from "./defaults.js";
 
 const log = createLogger("mcp");
 
@@ -49,7 +50,7 @@ export class McpRegistry {
   }
 
   private migrate(): void {
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS mcp_servers (
         id         TEXT PRIMARY KEY,
         name       TEXT NOT NULL,
@@ -185,6 +186,42 @@ export class McpRegistry {
     this.save();
     if (changes > 0) log.info(`MCP server removed: ${id}`);
     return changes > 0;
+  }
+
+  /**
+   * Seed default MCP servers if they don't already exist.
+   * Idempotent — safe to call on every startup.
+   * Returns the number of servers created.
+   */
+  seedDefaults(): number {
+    let created = 0;
+    for (const server of DEFAULT_MCP_SERVERS) {
+      if (!this.get(server.id)) {
+        const now = Date.now();
+        execute(
+          this.db,
+          `INSERT INTO mcp_servers (id, name, command, args, env, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            server.id,
+            server.name,
+            server.command,
+            JSON.stringify(server.args),
+            JSON.stringify(server.env),
+            server.enabledByDefault ? 1 : 0,
+            now,
+            now,
+          ]
+        );
+        this.save();
+        log.info(`Default MCP server seeded: ${server.id} (${server.enabledByDefault ? "enabled" : "disabled"})`);
+        created++;
+      }
+    }
+    if (created > 0) {
+      log.info(`Seeded ${created} default MCP server(s)`);
+    }
+    return created;
   }
 
   private save(): void {

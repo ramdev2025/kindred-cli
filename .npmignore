@@ -1,0 +1,40 @@
+# Source files (publish compiled dist/ only)
+packages/*/src/
+packages/*/tsconfig.json
+packages/*/vitest.config.ts
+packages/core/tsconfig.tsbuildinfo
+
+# Tests
+**/__tests__/
+**/tests/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+
+# Thinking package (already bundled into core/python/)
+packages/thinking/
+
+# Dev/build config
+tsconfig.json
+vitest.config.ts
+PRD.md
+
+# Images (referenced via GitHub URL)
+*.png
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Plans
+plans/
+
+# Logs
+*.log
+logs/

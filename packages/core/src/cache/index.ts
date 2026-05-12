@@ -16,7 +16,7 @@ export class Cache {
   }
 
   private migrate(): void {
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS cache (
         key        TEXT PRIMARY KEY,
         value      TEXT NOT NULL,
@@ -82,7 +82,7 @@ export class Cache {
   }
 
   clear(): void {
-    this.db.run("DELETE FROM cache");
+    this.db.exec("DELETE FROM cache");
     this.save();
     log.info("Cache cleared");
   }

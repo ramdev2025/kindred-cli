@@ -14,6 +14,8 @@ import {
   Cache,
   SubagentSpawner,
   Subagent,
+  SkillBuilder,
+  detectSkillIntent,
   createLogger,
   type AppConfig,
   type TokenUsage,
@@ -94,6 +96,7 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
   // Onboarding state
   const [showSetup, setShowSetup] = useState(false);
   const [configMgr, setConfigMgr] = useState<ConfigManager | null>(null);
+  const [earlyMcpRegistry, setEarlyMcpRegistry] = useState<McpRegistry | null>(null);
   const [initDone, setInitDone] = useState(false);
 
   // Persistent subagent — reused across messages
@@ -110,6 +113,12 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
         if (apiKey) {
           mgr.set(apiKeyConfigKey(provider), apiKey as never);
         }
+        // Create MCP registry early so the setup wizard can access it
+        const db = mgr.getDatabase();
+        const dbPath = mgr.getDbPath();
+        const mcp = new McpRegistry(db, dbPath);
+        mcp.seedDefaults();
+        setEarlyMcpRegistry(mcp);
         setConfigMgr(mgr);
         if (!apiKey && mgr.needsSetup()) {
           setShowSetup(true);
@@ -132,13 +141,16 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
       const dbPath = configMgr.getDbPath();
       const cache = new Cache(db, dbPath);
       const skillRegistry = new SkillRegistry(db, dbPath, cache);
-      const mcpRegistry = new McpRegistry(db, dbPath);
+      skillRegistry.seedDefaults();
+      const mcpRegistry = earlyMcpRegistry ?? new McpRegistry(db, dbPath);
+      // seedDefaults already called in Phase 1, but safe to call again if earlyMcpRegistry was null
+      mcpRegistry.seedDefaults();
       const templateSelector = new TemplateSelector(skillRegistry);
-      const router = new SlashCommandRouter(configMgr, skillRegistry, mcpRegistry, () => {
+      const spawner = new SubagentSpawner();
+      const router = new SlashCommandRouter(configMgr, skillRegistry, mcpRegistry, spawner, () => {
         setShowSetup(true);
         setReady(false);
       });
-      const spawner = new SubagentSpawner();
 
       if (model) configMgr.set("model", model);
       configMgr.set("provider", provider as AppConfig["provider"]);
@@ -194,7 +206,7 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
 
       // Handle slash commands (always immediate, even while thinking)
       if (trimmed.startsWith("/")) {
-        const result = services.router.handle(trimmed);
+        const result = await services.router.handle(trimmed);
         setMessages((prev) => [
           ...prev,
           { role: "user", content: trimmed },
@@ -202,6 +214,72 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
         ]);
         const cfg = services.configMgr.getAll();
         setStatus(`${cfg.provider} | ${cfg.thinkingLevel} | ${cfg.mode}`);
+        return;
+      }
+
+      // Auto-detect skill creation intent from natural language
+      const skillIntent = detectSkillIntent(trimmed);
+      if (skillIntent) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "user" as const, content: trimmed },
+          { role: "task" as const, content: "", taskState: { status: "thinking" as TaskStatus, startTime: Date.now() } },
+        ]);
+        setThinking(true);
+
+        try {
+          const cfg = services.configMgr.getAll();
+          const apiKey = cfg.provider === "openai" ? cfg.openaiApiKey : cfg.anthropicApiKey;
+          const builder = new SkillBuilder(services.spawner, {
+            provider: cfg.provider || "anthropic",
+            thinkingLevel: cfg.thinkingLevel || "medium",
+            apiKey,
+            model: cfg.model,
+          });
+          const generated = await builder.generate(skillIntent.description);
+
+          if (!services.skillRegistry.get(generated.id)) {
+            services.skillRegistry.create({
+              id: generated.id,
+              name: generated.name,
+              description: generated.description,
+              template: generated.template,
+              tags: generated.tags,
+            });
+          }
+
+          setMessages((prev) => {
+            const updated = [...prev];
+            // Replace the task placeholder with done
+            let taskIdx = -1;
+            for (let i = updated.length - 1; i >= 0; i--) {
+              if (updated[i].role === "task") { taskIdx = i; break; }
+            }
+            if (taskIdx >= 0) {
+              updated[taskIdx] = { role: "task", content: "", taskState: { status: "done", startTime: Date.now() } };
+            }
+            updated.push({
+              role: "assistant",
+              content: `Skill created: **${generated.name}** (\`${generated.id}\`)\nTags: ${generated.tags.join(", ")}\n\n${generated.template}\n\nUse \`/skill list\` to see all skills or \`/skill get ${generated.id}\` for details.`,
+            });
+            return updated;
+          });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          setMessages((prev) => {
+            const updated = [...prev];
+            let taskIdx = -1;
+            for (let i = updated.length - 1; i >= 0; i--) {
+              if (updated[i].role === "task") { taskIdx = i; break; }
+            }
+            if (taskIdx >= 0) {
+              updated[taskIdx] = { role: "task", content: "", taskState: { status: "error", startTime: Date.now(), errorMessage: errMsg } };
+            }
+            return updated;
+          });
+        }
+
+        setThinking(false);
         return;
       }
 
@@ -249,7 +327,13 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
         const enabledMcp = services.mcpRegistry.listEnabled();
         if (enabledMcp.length > 0) {
           const mcpContext = enabledMcp
-            .map((s) => `[MCP Server: ${s.name}]\nCommand: ${s.command}${s.args.length > 0 ? " " + s.args.join(" ") : ""}`)
+            .map((s) => {
+              let desc = `[MCP Server: ${s.name}]\nCommand: ${s.command}${s.args.length > 0 ? " " + s.args.join(" ") : ""}`;
+              if (s.id === "tavily") {
+                desc += "\nNote: If Tavily returns a 401/403 or credits-exhausted error, inform the user: \"The shared Tavily API key has been depleted. To continue using Tavily search, get your own free key at tavily.com and configure it with: /mcp env tavily TAVILY_API_KEY=your-key-here\"";
+              }
+              return desc;
+            })
             .join("\n\n");
           enrichedMessage = `${mcpContext}\n\n---\n\n${enrichedMessage}`;
         }
@@ -335,7 +419,7 @@ export function App({ provider, thinkingLevel, mode, apiKey, model }: AppProps) 
 
   // --- Render: Setup wizard ---
   if (showSetup && configMgr) {
-    return <SetupWizard configMgr={configMgr} onComplete={handleSetupComplete} />;
+    return <SetupWizard configMgr={configMgr} mcpRegistry={earlyMcpRegistry ?? undefined} onComplete={handleSetupComplete} />;
   }
 
   // --- Render: Main app ---

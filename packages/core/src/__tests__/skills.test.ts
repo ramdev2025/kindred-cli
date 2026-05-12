@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { initDb, openDb, type Database } from "../db.js";
 import { Cache } from "../cache/index.js";
 import { SkillRegistry, type SkillDefinition } from "../skills/index.js";
+import { DEFAULT_SKILLS } from "../skills/defaults.js";
 import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
@@ -105,5 +106,55 @@ describe("SkillRegistry", () => {
     // Second call — should come from cache
     const second = registry.get("cached");
     expect(second).toEqual(first);
+  });
+
+  describe("seedDefaults", () => {
+    it("should create all default skills on empty database", () => {
+      const count = registry.seedDefaults();
+      expect(count).toBe(DEFAULT_SKILLS.length);
+
+      const skills = registry.list();
+      expect(skills.length).toBe(DEFAULT_SKILLS.length);
+
+      for (const def of DEFAULT_SKILLS) {
+        const skill = registry.get(def.id);
+        expect(skill).not.toBeNull();
+        expect(skill!.name).toBe(def.name);
+        expect(skill!.template).toBe(def.template);
+        expect(skill!.tags).toEqual(def.tags);
+      }
+    });
+
+    it("should be idempotent — no duplicates on second call", () => {
+      registry.seedDefaults();
+      const secondCount = registry.seedDefaults();
+      expect(secondCount).toBe(0);
+
+      const skills = registry.list();
+      expect(skills.length).toBe(DEFAULT_SKILLS.length);
+    });
+
+    it("should not overwrite user-modified default skills", () => {
+      registry.seedDefaults();
+      registry.update("software-engineer", { name: "My Custom Engineer" });
+
+      const thirdCount = registry.seedDefaults();
+      expect(thirdCount).toBe(0);
+
+      const skill = registry.get("software-engineer");
+      expect(skill!.name).toBe("My Custom Engineer");
+    });
+
+    it("should restore only missing default skills", () => {
+      registry.seedDefaults();
+      registry.delete("devops-engineer");
+
+      const count = registry.seedDefaults();
+      expect(count).toBe(1);
+
+      const restored = registry.get("devops-engineer");
+      expect(restored).not.toBeNull();
+      expect(restored!.name).toBe("DevOps Engineer");
+    });
   });
 });
